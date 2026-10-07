@@ -1,26 +1,9 @@
-None selected
 
-Skip to content
-Using RKNEC Mail with screen readers
-
-1 of 1,302
-(no subject)
-External
-Inbox
-
-Malhar Dongre
-Attachments
-1:54 AM (0 minutes ago)
-to me
-
-
- One attachment
-  •  Scanned by Gmail
 # VoucherIQ: Hybrid Open-Source LLM Voucher Classifier
 
 > Hacktober Fest | Open Source AI Hackathon | Track 4: VYOM+ Intelligent Voucher Classification Using Open-Source LLMs
 >
-> **Team:** `MidNighters` | `Malhar Dongre`, `Tanishq Kale`, `Atharv Dube`, `Shriraj Dhore`
+> **Team:** `MidNighters` | `Malhar Dongre`, `Tanishq Kale`, `Atharv Dubey`, `Shriraj Dhore`
 
 ---
 
@@ -969,23 +952,7 @@ Our own implementation will be published under an appropriate open-source licens
 | **Impact / scalability** | Sections 6 and 18 |
 | **Overall coherence** | Architecture, worked examples, ablation plan and implementation milestones |
 
-## Submission Checklist
 
-- [x] Repository contains only `README.md`
-- [x] All 20 mandatory README sections are present
-- [x] Problem statement and target users are defined
-- [x] Open-source/open-weight AI technology is named and justified
-- [x] AI's role is central and explicitly explained
-- [x] Architecture and data flow are documented
-- [x] Open-source dependencies/components are documented
-- [x] Implementation approach is realistic for the final hackathon
-- [x] Challenges and mitigation strategies are included
-- [x] Output format is defined
-- [x] Evaluation strategy is defined
-- [ ] Confirm exact final team details
-- [ ] Preview README on GitHub and verify Mermaid/table rendering
-- [ ] Verify exact model/runtime licenses used in the final implementation
-- [ ] Submit before the official qualifier deadline
 
 ---
 
@@ -1015,8 +982,4 @@ The result is a practical, privacy-conscious and extensible system designed spec
 
 ---
 
-> **Qualifier Stage:** Technical Proposal  
-> **Repository rule:** `README.md` only  
-> **Final Stage:** Working implementation of the proposed system
-VoucherIQ_Final_README.md
-Displaying VoucherIQ_Final_README.md.
+
