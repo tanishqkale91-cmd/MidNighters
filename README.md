@@ -1,21 +1,26 @@
-# MidNighters
-
-
+None selected
 
 Skip to content
 Using RKNEC Mail with screen readers
 
-Conversations
- 
-Program Policies
-Powered by Google
-Last account activity: 4 hours ago
-Details
+1 of 1,302
+(no subject)
+External
+Inbox
+
+Malhar Dongre
+Attachments
+1:54 AM (0 minutes ago)
+to me
+
+
+ One attachment
+  •  Scanned by Gmail
 # VoucherIQ: Hybrid Open-Source LLM Voucher Classifier
 
 > Hacktober Fest | Open Source AI Hackathon | Track 4: VYOM+ Intelligent Voucher Classification Using Open-Source LLMs
 >
-> **Team:** `[Team Name]` | `[Member 1]`, `[Member 2]`, `[Member 3]`, `[Member 4]`
+> **Team:** `MidNighters` | `Malhar Dongre`, `Tanishq Kale`, `Atharv Dube`, `Shriraj Dhore`
 
 ---
 
@@ -23,19 +28,21 @@ Details
 
 | | |
 |---|---|
-| **Problem** | Assign the correct accounting voucher type (1 of 27) to each already-structured transaction row, where the voucher-type column has been removed |
-| **Approach** | Deterministic rules for the obvious rows, retrieval-grounded local LLM reasoning for the ambiguous ones, and a validator that checks every answer |
-| **Primary AI** | Locally hosted, quantized open-weight LLM/SLM (7B to 12B class) run through Ollama, with schema-constrained JSON output |
-| **Privacy** | Fully local inference. No financial data leaves the machine and no proprietary API is used |
-| **Output** | `voucher_type` per row in JSON and Excel, plus confidence, a one-line explanation and a review flag |
-| **Evaluation** | One-command scripted report: accuracy, precision, recall, F1, per-category scores, confusion matrix, latency and memory |
+| **Problem** | Assign the correct accounting voucher type — one of the **27 organizer-defined categories** — to each already-structured transaction row, where the voucher-type field is missing |
+| **Core idea** | Convert structured transaction data into **context-aware accounting signals**, generate a focused candidate set, ground an open-weight LLM with relevant examples, and validate every prediction |
+| **Primary AI** | **Qwen3-8B** as the primary open-weight LLM candidate, run locally in quantized form; a short bake-off may select a better-performing compatible model before the final implementation is locked |
+| **Inference** | Local model inference through **Ollama / llama.cpp-compatible runtime**, with structured JSON output |
+| **Privacy** | Designed for fully local inference; financial data is not sent to a proprietary classification API |
+| **Output** | `voucher_type` per row in JSON and Excel, with an optional calibrated confidence score, explanation, and `flag_for_review` |
+| **Evaluation** | Reproducible evaluation using accuracy, macro/weighted precision, recall, F1, per-category metrics, confusion matrix, latency, throughput, and memory |
 
-**Four ideas that make VoucherIQ different from "just prompt an LLM":**
+### What makes VoucherIQ different from "just prompt an LLM"?
 
-1. **Home-entity inference.** Purchase vs Sales is a question of *whose books these are*, so the system works out who "we" are and gives the model a `party_role` signal instead of leaving it to guess.
-2. **Signals, not keywords.** Every decision is based on combinations of fields (payroll fields, debit/credit structure, return references, currency, order or delivery references), not on a single word.
-3. **Tiered inference.** Unambiguous rows skip the LLM, ambiguous rows get one grounded LLM call, and conflicts get exactly one focused retry. This keeps speed and cost low.
-4. **Abstain and flag.** When evidence is insufficient the system raises a review flag rather than forcing a confident wrong answer.
+1. **Context before classification:** transaction fields are normalized and converted into explicit accounting signals before the model sees them.
+2. **Candidate generation:** the system narrows 27 categories to a smaller plausible set before semantic reasoning, reducing confusion and prompt size.
+3. **Grounded reasoning:** retrieval supplies relevant worked examples for difficult category boundaries instead of relying only on the model's prior knowledge.
+4. **Validator-first reliability:** the model never gets the final word on format or hard constraints; a validator checks the prediction and can trigger one focused re-query.
+5. **Uncertainty-aware output:** the system always returns a valid category, while low-confidence or conflicting predictions are flagged for human review.
 
 ---
 
@@ -68,103 +75,283 @@ Details
 
 ## 1. Project Name
 
-**VoucherIQ**: a hybrid (rules + retrieval + open-source LLM) classifier that assigns the correct accounting voucher type to structured transaction records.
+# **VoucherIQ**
+
+**VoucherIQ** is a hybrid classification system that combines structured accounting signals, retrieval-grounded reasoning, an open-weight LLM, and deterministic validation to classify structured financial transactions into the correct accounting voucher category.
 
 ---
 
 ## 2. Problem Statement
 
-Accounting systems need every transaction filed under the right **voucher type** (Purchase, Sales, Payment, Contra, Journal, Salary, Credit Note and so on). Today this is done by hand or with brittle keyword rules, which fail because **the same fields mean different things in different contexts**:
+Accounting systems must assign every transaction the correct **voucher type**. The challenge provides structured transaction information while intentionally removing the voucher-type column. The system must infer the missing category from the complete transaction context.
 
-- A row with a supplier, GST and item lines could be a **Purchase** or a **Sales**, depending on which side of the transaction the business sits.
-- A bank-to-bank movement looks like a **Payment** and a **Receipt**, but is actually a **Contra**.
-- A return looks like a normal invoice, but must be a **Debit Note** or **Credit Note**.
-- Inventory movements (**Material In/Out**, **Stock Journal**) look like purchases and sales but carry no commercial invoice meaning.
+This is difficult because many categories are semantically similar and contain overlapping fields:
 
-The task: given an Excel file of already-structured transactions **with the voucher-type column removed**, predict exactly one voucher category per row, using reasoning over **multiple fields together**, with an **open-source LLM/SLM as the primary intelligence layer**, and make the result **reproducible and programmatically evaluable**.
+- A transaction with seller, buyer, item lines, GST and values may represent either **Purchase** or **Sales**, depending on transaction direction.
+- A money movement can resemble **Payment** or **Receipt**, but may actually be **Contra** when both sides are internal cash/bank accounts.
+- A return can resemble a normal commercial invoice while requiring **Purchase Return / Debit Note** or **Sales Return / Credit Note**.
+- Orders, receipt notes, delivery notes, rejections and material movements may contain quantities and parties but are not ordinary purchase/sales invoices.
+- Salary, expense, advance and payment transactions can share parties and monetary fields while representing different accounting meanings.
 
-This is explicitly **not** an OCR or invoice-extraction problem.
+The required system therefore cannot depend on a single keyword or isolated field. It must reason over **multiple related fields and, where useful, cross-row context**, while using an open-source/openly available LLM or suitable AI architecture as the primary intelligence layer.
+
+This is **not an OCR or invoice-extraction problem**. The input transaction information is already structured in Excel.
 
 ---
 
 ## 3. Project Overview
 
-VoucherIQ is a pipeline, not a single prompt. It reads a transaction spreadsheet, normalizes it, computes explainable accounting signals, retrieves similar worked examples, and asks a **locally running open-source LLM** to choose a voucher category in a strict, machine-readable format. A validator then checks the answer against the signals before it is accepted. Low-confidence or conflicting rows are re-examined or flagged instead of being silently guessed.
+VoucherIQ is an end-to-end classification pipeline rather than a single prompt.
+
+It:
+
+1. Loads and validates the organizer-provided Excel dataset.
+2. Maps inconsistent or unknown column names into a canonical schema.
+3. Normalizes values and identifies missing information.
+4. Derives accounting-oriented signals and optional cross-row context.
+5. Generates a small candidate set of plausible voucher categories.
+6. Retrieves relevant labeled examples for difficult cases.
+7. Uses a local open-weight LLM for contextual semantic classification.
+8. Validates the output against the allowed taxonomy and hard signals.
+9. Performs at most one focused re-query when a prediction conflicts with validation.
+10. Returns the final category in machine-readable form.
+11. Produces evaluation metrics when labeled data is available.
+
+### Input / Output
 
 | Item | Detail |
 |---|---|
-| Input | Excel (.xlsx) of structured transactions, voucher type missing |
-| Output | One voucher type per row (JSON and Excel), plus optional confidence and short explanation |
-| Core intelligence | Open-source / open-weight LLM or SLM running locally |
-| Supporting layers | Schema mapper, signal extractor, example retrieval, validator, evaluation harness |
-| Constraint honored | No proprietary API is used for classification |
+| **Input** | Excel (`.xlsx`) containing structured transaction data with voucher type omitted |
+| **Core intelligence** | Local open-weight LLM |
+| **Supporting intelligence** | Accounting signals, candidate generation, embeddings/retrieval, deterministic validation |
+| **Output** | One voucher category per transaction row in JSON and/or Excel |
+| **Optional metadata** | Confidence score, short explanation, review flag |
+| **Execution model** | Local-first, no proprietary API as the primary classification engine |
+
+### High-Level Flow
+
+```text
+Excel Dataset
+      |
+      v
+Schema Mapping + Normalization
+      |
+      v
+Cross-Row Context + Signal Extraction
+      |
+      v
+Candidate Generation
+      |
+      +---------------------------+
+      |                           |
+      v                           v
+High-Precision Case          Ambiguous Case
+      |                           |
+      |                           v
+      |                  Example Retrieval
+      |                           |
+      |                           v
+      |                    Open-Source LLM
+      |                           |
+      +-------------+-------------+
+                    |
+                    v
+             Validation Engine
+                    |
+          +---------+---------+
+          |                   |
+      Consistent        Conflict / Low
+          |             Confidence
+          |                   |
+          |                   v
+          |             One Focused Retry
+          |                   |
+          +---------+---------+
+                    |
+                    v
+            Final Voucher Label
+                    |
+                    v
+             JSON / Excel Output
+```
 
 ---
 
 ## 4. Proposed Solution
 
-A **five-stage hybrid pipeline**:
+We propose a **context-aware hybrid classifier** rather than a direct `Excel -> LLM -> label` pipeline.
 
-1. **Schema Mapper & Normalizer**: handles unknown column names, missing values, mixed formats and currencies.
-2. **Signal Extractor**: derives accounting-meaningful flags from the whole row (for example *has payroll fields*, *has debit/credit indicator*, *has return reference*, *cross-border or currency flag*, *has delivery/order reference but no tax invoice*, *party role relative to the home business*).
-3. **Retrieval of Worked Examples (RAG)**: finds the most similar labeled examples from a curated example bank and injects them into the prompt as few-shot guidance.
-4. **LLM Classifier**: a local open model reasons over the row, the signals, the candidate categories and the examples, and returns schema-constrained JSON.
-5. **Validator & Confidence Engine**: checks the LLM output against hard accounting rules and signals, re-queries on conflict, and produces a calibrated confidence score.
+### Stage 1 — Schema Mapper & Normalizer
 
-**Why hybrid and not "just prompt an LLM":** pure keyword rules cannot separate semantically close categories, and a pure LLM without grounding is inconsistent, slow and prone to guessing. Combining deterministic signals, retrieval and an LLM gives accuracy, consistency and speed together.
+The system maps the incoming spreadsheet into a canonical schema even when column names vary.
+
+Examples:
+
+- `Supplier`, `Vendor`, `Seller Name` -> `seller`
+- `Customer`, `Buyer Name` -> `buyer`
+- `GST`, `GST Amount`, `Tax` -> canonical tax fields
+
+It also normalizes dates, numbers, currencies, blank values, and text representations.
+
+### Stage 2 — Signal Extraction
+
+Instead of treating every cell as raw text, the system derives interpretable signals such as:
+
+- presence of payroll fields
+- presence of invoice/order/delivery references
+- debit/credit structure
+- return references
+- presence or absence of commercial values
+- item/quantity indicators
+- currency and cross-border indicators
+- party role relative to the home entity
+- cash/bank account indicators
+
+These signals are used to focus the model and support deterministic validation.
+
+### Stage 3 — Candidate Generation
+
+The full taxonomy contains 27 categories. Rather than forcing the model to compare every category for every transaction, the system generates a smaller **candidate set** based on available evidence.
+
+Example:
+
+```text
+Transaction
+    |
+    +-- payroll fields? ------> Salary / Payroll, Payment
+    |
+    +-- return reference? ----> Purchase Return / Debit Note,
+    |                           Sales Return / Credit Note
+    |
+    +-- bank/cash movement? --> Payment, Receipt, Contra
+    |
+    +-- order reference? -----> Purchase Order, Sales Order,
+                                Job Work In Order, Job Work Out Order
+```
+
+Candidate generation is a constraint and efficiency layer; the LLM remains responsible for semantic disambiguation among plausible categories.
+
+### Stage 4 — Retrieval-Grounded LLM Classification
+
+For ambiguous transactions, the system retrieves relevant worked examples from a curated example bank using embeddings and vector similarity.
+
+The LLM receives:
+
+- normalized transaction context
+- accounting signals
+- candidate categories
+- category definitions/disambiguation guidance
+- relevant worked examples
+
+It returns schema-constrained JSON containing the predicted voucher type and a concise reason.
+
+### Stage 5 — Validation & Confidence
+
+The validator checks:
+
+- whether the predicted category belongs to the allowed taxonomy
+- whether the prediction violates high-precision signals
+- whether it is outside the generated candidate set without sufficient evidence
+- whether the output matches the required JSON structure
+- whether the prediction remains uncertain
+
+When a conflict is detected, the system performs **one focused re-query** using the conflicting signals. If uncertainty remains, the transaction is still assigned a valid category but marked `flag_for_review = true`.
+
+### Why Hybrid Instead of "Just Prompt an LLM"?
+
+A pure rules system is brittle around semantically similar categories. A pure LLM system can be inconsistent and difficult to validate.
+
+VoucherIQ combines:
+
+**deterministic constraints + contextual signals + retrieval + open-weight LLM reasoning + deterministic validation**
+
+so that each layer has a specific responsibility.
 
 ---
 
 ## 5. Objectives
 
-1. Classify each transaction into exactly one of the **27 target voucher categories** with high accuracy and F1.
-2. Specifically perform well on the **hard confusable pairs** (listed in Section 20).
-3. Use an **open-source / open-weight LLM or SLM as the primary classifier**, run locally.
-4. Handle **missing, incomplete and ambiguous** records gracefully (flag, do not hallucinate).
-5. Emit **structured, programmatically evaluable output** (JSON and Excel).
-6. Provide a **reproducible evaluation method** (fixed seeds, pinned model versions, deterministic decoding, scripted metrics).
-7. Keep **inference fast and resource-efficient** (batching, caching, skipping the LLM for rows that are unambiguous).
+1. Classify each transaction into exactly one of the **27 organizer-defined voucher categories**.
+2. Improve performance on the challenge's semantically similar category groups.
+3. Use an **open-weight/open-source LLM or suitable open AI architecture as the primary intelligence layer**.
+4. Handle missing, incomplete and ambiguous transaction information without silently fabricating evidence.
+5. Produce structured, machine-readable predictions.
+6. Provide reproducible evaluation using standard classification metrics.
+7. Keep inference practical through candidate pruning, caching, batching and quantization where appropriate.
+8. Provide an auditable workflow in which signals, retrieval context and validation outcomes can be inspected.
 
 ---
 
 ## 6. Target Users / Use Case
 
-| User | How they use VoucherIQ |
-|---|---|
-| Accountants and bookkeepers at SMEs | Upload a transaction sheet and get suggested voucher types to review instead of tagging row by row |
-| Accounting software vendors (such as the sponsor, VYOM+) | Use it as the bridge between invoice extraction and **automated voucher creation** |
-| Auditors and finance teams | Use flagged low-confidence rows to find likely misclassifications |
-| Developers | Call the pipeline as a module or CLI in a larger accounting workflow |
+### Target Users
 
-**Primary use case:** an upstream system extracts invoice or transaction fields into a spreadsheet; VoucherIQ labels each row with the voucher type so that an accounting system can create the right entry automatically.
+| User | Use Case |
+|---|---|
+| **Accountants / Bookkeepers** | Upload transaction data and receive voucher suggestions for review |
+| **Accounting Software Providers** | Use classification as a bridge between transaction extraction and automated voucher creation |
+| **Finance Teams / Auditors** | Focus manual review on uncertain or conflicting transactions |
+| **Developers** | Integrate the classifier as a service, CLI tool, or downstream accounting module |
+
+### Primary Use Case
+
+An upstream accounting or invoice-processing system produces structured transaction fields in a spreadsheet. VoucherIQ classifies every row and returns the predicted voucher type in a standardized format.
+
+```text
+Structured Transaction Data
+            |
+            v
+        VoucherIQ
+            |
+            v
+Voucher Type + Confidence + Review Flag
+            |
+            v
+Accounting / Review Workflow
+```
 
 ---
 
 ## 7. Open-Source AI Technology Selected
 
-| Layer | Component | Role |
+### Primary AI
+
+**Qwen3-8B**, an open-weight instruction-tuned model, is the primary model candidate for the classification layer.
+
+The model is suitable for this proposal because the task requires:
+
+- multi-field contextual reasoning
+- instruction following
+- structured classification
+- local inference
+- practical deployment within constrained compute environments
+
+The official Qwen3-8B model card identifies it as an 8B-class causal language model and lists an Apache-2.0 license for the model repository.
+
+### Supporting AI Components
+
+| Layer | Technology | Role |
 |---|---|---|
-| **Primary classifier** | A locally hosted open-weight instruction-tuned LLM/SLM in the 7B to 12B class, quantized (candidates: **Qwen**, **Gemma**, **Llama**, **Mistral** families) | Reasons over the full transaction context and selects a voucher category |
-| **Local inference runtime** | **Ollama** (with **llama.cpp** as an alternative) | Runs quantized models on commodity hardware, with JSON-schema constrained decoding |
-| **Embedding model** | An open sentence-embedding model (for example a **BGE** or **E5** class model) | Encodes transactions and examples for similarity search |
-| **Vector index** | **FAISS** (or **ChromaDB**) | Retrieves the most similar worked examples |
-| **Classical ML helper** | **scikit-learn** | Evaluation metrics, and an optional lightweight classifier on signals if labeled data becomes available |
+| **Primary classifier** | Qwen3-8B | Semantic reasoning and voucher classification |
+| **Local inference runtime** | Ollama / llama.cpp-compatible runtime | Quantized local model inference and structured output |
+| **Embedding model** | Open sentence-embedding model such as a BGE/E5-class model | Similarity search over worked examples |
+| **Vector index** | FAISS or ChromaDB | Retrieval of relevant examples |
+| **Evaluation / optional ML** | scikit-learn | Metrics and optional lightweight baseline |
 
-### Model selection plan
+### Model Selection Policy
 
-The exact model is **chosen by a short, scripted bake-off** on our validation set at the start of the final, not by popularity. All model licenses are checked before use.
+Qwen3-8B is the primary planned model, but the final hackathon implementation will run a short controlled bake-off against one or more compatible open models when practical.
 
-| Tier | Candidates (4-bit quantized) | Why it is on the shortlist |
-|---|---|---|
-| **Primary (7B to 12B instruct)** | Qwen-family, Gemma-family, Llama-family, Mistral-family instruct models | Strong instruction following and reliable structured output at a size that runs locally |
-| **Speed tier (about 3B to 4B)** | Small Qwen, Phi or Gemma-class models | Fallback for CPU-only machines, or a cheap first pass when the primary model is too slow |
+The decision will be based on:
 
-| Bake-off criterion | Priority |
-|---|---|
-| Macro-F1 on the confusable pairs (Section 11) | Highest |
-| Valid-JSON and valid-label rate under constrained decoding | High |
-| Latency per row and peak memory | High |
-| License permits our use | Mandatory |
+1. Macro-F1 overall
+2. F1 on confusable categories
+3. Valid-label / valid-JSON rate
+4. Latency and throughput
+5. Peak memory
+6. License compatibility
+
+The selected model will then be pinned for reproducibility.
 
 ---
 
@@ -172,24 +359,74 @@ The exact model is **chosen by a short, scripted bake-off** on our validation se
 
 | Decision | Reason |
 |---|---|
-| **LLM as the core** | The task is about *meaning*: the same fields imply different voucher types depending on context. Rules and bag-of-words models cannot reason over combinations of fields. |
-| **Small / quantized open model (7B to 12B)** | Runs locally on a laptop-class GPU or even CPU, keeps inference fast and cheap, and avoids per-call API cost and rate limits. |
-| **Local inference** | Financial data is sensitive; nothing leaves the machine. It also satisfies the rule that a proprietary API must not be the primary engine. |
-| **Retrieval of examples** | The training labels are not provided. Curated examples let a general model learn *our* voucher conventions without fine-tuning, and make behavior easy to inspect and extend. |
-| **Schema-constrained decoding** | Forces valid JSON with a label from the allowed list, which removes parsing errors and invalid categories. |
-| **Open-source approach overall** | Reproducible (pinned weights), auditable, no vendor lock-in, and deployable on-premise inside an accounting firm. |
+| **Open-weight LLM as the semantic core** | The challenge requires reasoning over the relationship between multiple transaction fields rather than a single keyword |
+| **Qwen3-8B class model** | Provides a practical balance between reasoning capability and local inference requirements |
+| **Quantized local inference** | Reduces memory requirements and avoids dependence on a proprietary API |
+| **Retrieval-grounded examples** | Gives the model concrete category examples for difficult boundaries |
+| **Candidate generation** | Reduces unnecessary comparison across all 27 categories |
+| **Schema-constrained output** | Keeps predictions machine-readable and restricted to the allowed label set |
+| **Deterministic validation** | Prevents a syntactically valid but logically unsupported LLM output from being accepted blindly |
 
 ---
 
 ## 9. AI's Role in the System
 
-The AI is **central to the decision**, not an add-on:
+AI is a **central decision-making component**, not an optional add-on.
 
-- **LLM:** performs contextual reasoning across all fields of a row to select the voucher category, and optionally writes a one-line explanation.
-- **Embedding model + retrieval:** supplies grounded examples so the LLM follows consistent conventions.
-- **Non-AI components** (schema mapper, signal extractor, validator) make the AI's input cleaner and its output verifiable, so the system is reliable rather than a black box.
+### LLM
 
-Rows that are structurally unambiguous may skip the LLM for speed (see Section 12). Every ambiguous or semantically confusable row goes through the LLM.
+The open-weight LLM performs semantic reasoning over:
+
+- normalized transaction fields
+- accounting signals
+- candidate categories
+- retrieved examples
+- category definitions and disambiguation guidance
+
+It selects the most appropriate voucher category and may provide a short explanation.
+
+### Embedding / Retrieval Model
+
+The embedding model does not replace the LLM. It helps ground difficult cases by retrieving examples that are semantically close to the current transaction.
+
+### Non-AI Components
+
+Rules, schema handling and validation are not substitutes for the LLM. They provide:
+
+- cleaner inputs
+- candidate constraints
+- deterministic checks
+- reproducible evaluation
+- safer failure handling
+
+### Example
+
+```text
+Transaction:
+Supplier + Buyer + GST + Items + Invoice Reference
+                |
+                v
+         Signal Extraction
+                |
+                v
+Candidate Set:
+Purchase / Sales / Return Categories
+                |
+                v
+      Retrieve Similar Examples
+                |
+                v
+           Qwen3-8B
+                |
+                v
+      "Purchase" + explanation
+                |
+                v
+           Validator
+                |
+                v
+        Final Prediction
+```
 
 ---
 
@@ -197,19 +434,31 @@ Rows that are structurally unambiguous may skip the LLM for speed (see Section 1
 
 ```mermaid
 flowchart TD
-    A["Excel input .xlsx<br/>voucher type missing"] --> B["Schema Mapper and Normalizer"]
-    B --> C["Signal Extractor<br/>accounting flags per row"]
-    C --> D{"High-precision<br/>rule fires?"}
-    D -- "Yes" --> H["Validator and Confidence Engine"]
-    D -- "No / ambiguous" --> E["Example Retriever<br/>embeddings + vector index"]
-    E --> F["Prompt Builder<br/>row + signals + candidates + examples"]
-    F --> G["Local Open-Source LLM<br/>schema-constrained JSON"]
-    G --> H
-    H -- "Conflict or low confidence" --> I["Re-query with<br/>focused prompt"]
+    A["Excel Input<br/>voucher type missing"] --> B["Schema Mapper & Normalizer"]
+    B --> C["Cross-Row Context<br/>and Signal Extractor"]
+    C --> D["Candidate Generator"]
+
+    D --> E{"High-precision<br/>case?"}
+
+    E -- "Yes" --> H["Validator & Confidence Engine"]
+
+    E -- "No / Ambiguous" --> F["Example Retriever<br/>Embeddings + Vector Index"]
+    F --> G["Prompt Builder<br/>Context + Signals + Candidates + Examples"]
+    G --> I["Qwen3-8B<br/>Local Open-Weight LLM"]
     I --> H
-    H --> J["Output Writer<br/>JSON + Excel"]
-    J --> K["Evaluation Harness<br/>accuracy, F1, per-class, confusion"]
+
+    H -- "Conflict / Low Confidence" --> J["Focused Re-query<br/>Maximum 1 retry"]
+    J --> H
+
+    H --> K["Final Voucher Label"]
+    K --> L["JSON / Excel Output"]
+
+    L --> M["Evaluation Harness<br/>Accuracy, F1, Per-Class, Confusion Matrix"]
 ```
+
+### Architectural Principle
+
+**The LLM performs semantic classification; deterministic components constrain, ground and verify the decision.**
 
 ---
 
@@ -217,60 +466,64 @@ flowchart TD
 
 | # | Component | Responsibility | Input | Output |
 |---|---|---|---|---|
-| 1 | **Schema Mapper** | Map arbitrary column names to a canonical schema using fuzzy matching and synonyms; coerce types; mark missing fields | Raw Excel | Canonical DataFrame |
-| 2 | **Home-Entity Inference** | Infer which party is "us" (the business whose books these are) from party frequency across the sheet or an optional config value | Canonical DataFrame | `home_entity` and per-row `party_role` (we are buyer / seller / neither) |
-| 3 | **Signal Extractor** | Compute explainable boolean and numeric flags per row | Canonical row | Signal vector |
-| 4 | **Rule Engine** | Fire only for **high-precision** patterns (for example payroll-only fields, attendance fields) and constrain the candidate set | Signals | Candidate categories and optional direct label |
-| 5 | **Example Bank** | Curated, labeled example transactions for each category and for confusable pairs | Built before and during the final | Embedded examples |
-| 6 | **Retriever** | Embed the row and fetch the top-k similar examples (balanced across candidate categories) | Row text and candidates | k examples |
-| 7 | **Prompt Builder** | Assemble category definitions, disambiguation rules, signals, examples and the row | All above | Prompt |
-| 8 | **LLM Classifier** | Return `{voucher_type, confidence_hint, reason}` under a strict JSON schema, temperature 0 | Prompt | Raw prediction |
-| 9 | **Validator** | Check prediction is in the label set, consistent with hard signals and the candidate set; detect conflicts | Prediction and signals | Accept / re-query / flag |
-| 10 | **Confidence Engine** | Combine rule agreement, retrieval agreement and LLM self-consistency into a score | Validator state | Confidence 0 to 1 |
-| 11 | **Output Writer** | Write JSON and Excel in the required structure | Final predictions | Files |
-| 12 | **Evaluation Harness** | Compute metrics against any labeled data (validation set, or the organizers' hidden set offline) | Predictions and labels | Metrics report |
+| 1 | **Schema Mapper** | Map incoming column names into a canonical schema | Raw Excel | Canonical records |
+| 2 | **Home-Entity Resolver** | Determine the accounting entity direction using explicit configuration when available, otherwise dataset-level evidence | Canonical records | `home_entity`, `party_role` |
+| 3 | **Cross-Row Context Engine** | Use relationships across rows where useful | Canonical dataset | Cross-row signals |
+| 4 | **Signal Extractor** | Compute accounting-oriented boolean/numeric signals | Canonical row | Signal vector |
+| 5 | **Candidate Generator** | Reduce the taxonomy to plausible categories | Signals | Candidate set |
+| 6 | **Rule Layer** | Apply only high-precision constraints and deterministic cases | Signals | Constraints / optional direct labels |
+| 7 | **Example Bank** | Store curated labeled examples and difficult confusable examples | Labeled examples | Example records |
+| 8 | **Retriever** | Fetch top-k relevant examples | Row + candidate set | Retrieved examples |
+| 9 | **Prompt Builder** | Assemble context, signals, candidates and examples | All prior outputs | LLM prompt |
+| 10 | **Qwen3-8B Classifier** | Perform semantic reasoning and select the voucher category | Prompt | Structured prediction |
+| 11 | **Validator** | Check taxonomy, hard signals, candidate set and output schema | Prediction + signals | Accept / retry / flag |
+| 12 | **Confidence Engine** | Produce a calibrated confidence score from multiple evidence sources | Validation state | Confidence score |
+| 13 | **Output Writer** | Produce final JSON / Excel | Final prediction | Output files |
+| 14 | **Evaluation Harness** | Compute metrics and ablations on labeled evaluation data | Predictions + labels | Metrics report |
 
-### Target label set (27 categories)
+### Target Label Set — 27 Categories
 
 | Group | Categories |
 |---|---|
-| Commercial invoices | Purchase, Sales, Purchase Return / Debit Note, Sales Return / Credit Note |
-| Cash and bank | Payment, Receipt, Contra, Advance / Prepayment, Expense |
-| Adjustments | Journal |
-| People | Salary / Payroll, Attendance |
-| Orders | Purchase Order, Sales Order, Job Work In Order, Job Work Out Order |
-| Goods movement | Receipt Note, Delivery Note, Rejection In, Rejection Out, Material In, Material Out, Stock Journal, Physical Stock |
-| Cross-border | Import, Export |
-| Fallback | Other / Miscellaneous |
+| **Commercial invoices** | Purchase, Sales, Purchase Return / Debit Note, Sales Return / Credit Note |
+| **Cash and bank** | Payment, Receipt, Contra, Advance / Prepayment, Expense |
+| **Adjustments** | Journal |
+| **People** | Salary / Payroll, Attendance |
+| **Orders** | Purchase Order, Sales Order, Job Work In Order, Job Work Out Order |
+| **Goods movement** | Receipt Note, Delivery Note, Rejection In, Rejection Out, Material In, Material Out, Stock Journal, Physical Stock |
+| **Cross-border** | Import, Export |
+| **Fallback** | Other / Miscellaneous |
 
-### Cross-row context
+### Cross-Row Context
 
-Some decisions cannot be made from a single row, so the signal extractor also looks across the sheet:
+Some signals become stronger when the system examines the spreadsheet as a whole.
 
-| Cross-row signal | Used for |
+| Cross-row signal | Potential use |
 |---|---|
-| Party frequency across all rows | Inferring the home entity (the business whose books these are) |
-| A return or credit/debit note whose referenced invoice number exists elsewhere in the sheet | Confirming Purchase Return vs Sales Return and their direction |
-| Order or delivery reference that matches a later invoice | Separating an order or note from the invoice that follows it |
-| Repeated counterparties and amounts | Detecting recurring payroll, rent and other expense patterns |
+| Party frequency across the dataset | Infer the likely home entity when no configuration is supplied |
+| Return/reference invoice relationship | Support return classification and transaction direction |
+| Order/delivery references shared across rows | Distinguish order/note records from subsequent commercial invoices |
+| Repeated patterns in counterparties and amounts | Support recurring payroll/expense pattern detection |
 
-### Disambiguation guide for confusable categories
+Cross-row evidence is treated as supporting context, not an unconditional rule.
 
-These are our working conventions, written into the prompt and the rule engine. They will be validated against the organizers' dataset at the start of the final and adjusted where the data shows a different convention.
+### High-Value Disambiguation Groups
 
-| Confusable group | Decisive signals | Typical trap |
-|---|---|---|
-| **Purchase vs Sales** | Home entity is buyer (Purchase) or seller (Sales); GST direction | Fields are symmetrical, so direction is the whole problem |
-| **Invoice vs Order** (Purchase / Sales vs Purchase Order / Sales Order) | Invoice number and tax invoice values vs order reference, expected delivery date and no invoice | Orders also carry items and values |
-| **Return vs original** (Purchase Return / Debit Note, Sales Return / Credit Note) | Reference to an earlier invoice, return reason, direction from `party_role` | Looks like a normal invoice |
-| **Payment vs Receipt vs Contra** | Money direction relative to the home entity; Contra has bank or cash accounts on both sides and no external party | Contra looks like a Payment and a Receipt at once |
-| **Expense vs Purchase** | Expense has no stock or item quantities and a service or overhead nature (rent, utilities, fees) | Both can carry GST and a supplier |
-| **Advance / Prepayment vs Payment** | Payment made ahead of goods or invoice, with no invoice reference | Same fields as an ordinary payment |
-| **Journal vs Purchase / Sales** | Debit/credit-only structure, no party invoice, no payment mode | Adjustments may mention goods or parties |
-| **Salary / Payroll vs Attendance vs Payment** | Payroll: employee, gross, deductions, pay period. Attendance: days or hours with no money | Payments to individuals look alike |
-| **Goods movement** (Receipt Note, Delivery Note, Rejection In/Out, Material In/Out, Stock Journal, Physical Stock) | Inward vs outward direction, link to an order, quantity without commercial value, internal transfer or conversion (Stock Journal), counted quantity with no counterparty (Physical Stock) | Quantities appear, but no invoice meaning |
-| **Import / Export vs ordinary trade** | Foreign currency, foreign party, customs or shipping fields | Looks like Purchase or Sales until the cross-border cue is used |
-| **Job Work In / Out Order** | Job-worker party, process or job reference | Resembles an ordinary order |
+| Confusable group | Key evidence |
+|---|---|
+| **Purchase vs Sales** | Transaction direction relative to the home entity; seller/buyer roles; tax direction |
+| **Purchase Return vs Sales Return** | Return indicators + referenced transaction + direction |
+| **Payment vs Receipt vs Contra** | Money direction + internal cash/bank movement |
+| **Expense vs Purchase** | Service/overhead characteristics vs stock/item characteristics |
+| **Advance / Prepayment vs Payment** | Payment timing and absence/presence of invoice reference |
+| **Journal vs Purchase / Sales** | Adjustment-style debit/credit structure without conventional commercial transaction evidence |
+| **Salary / Payroll vs Attendance vs Payment** | Employee/pay-period/deduction fields vs attendance-only information |
+| **Orders vs Invoices** | Order references and absence/presence of commercial invoice evidence |
+| **Goods movement family** | Inward/outward direction, order/delivery links, quantity-only movement |
+| **Import / Export vs ordinary trade** | Cross-border, currency, customs and shipping evidence |
+| **Job Work In / Out Order** | Job-worker/process references and direction |
+
+These are working conventions that will be validated against the organizer-provided data during the final round.
 
 ---
 
@@ -280,346 +533,490 @@ These are our working conventions, written into the prompt and the rule engine. 
 sequenceDiagram
     participant U as User / Evaluator
     participant S as Schema Mapper
-    participant X as Signal Extractor
+    participant X as Context + Signal Engine
+    participant C as Candidate Generator
     participant R as Retriever
-    participant L as Local LLM
+    participant L as Local Qwen3-8B
     participant V as Validator
     participant O as Output Writer
 
     U->>S: Upload transactions.xlsx
     S->>X: Canonical rows
-    X->>X: Compute signals, party role, candidate set
-    alt Unambiguous high-precision rule
-        X->>V: Direct label and signals
-    else Needs reasoning
-        X->>R: Row text and candidates
-        R->>L: Prompt with top-k worked examples
-        L->>V: JSON label, hint, reason
+    X->>C: Signals + context
+    C->>V: Candidate constraints
+
+    alt High-precision case
+        C->>V: Candidate / deterministic evidence
+    else Ambiguous case
+        C->>R: Row + candidate set
+        R->>L: Retrieved examples + prompt
+        L->>V: Structured prediction
     end
-    V->>V: Check against signals and label set
-    opt Conflict or low confidence
+
+    V->>V: Check label, schema, signals and consistency
+
+    alt Conflict / low confidence
         V->>L: Focused re-query
-        L->>V: Revised JSON
+        L->>V: Revised prediction
     end
-    V->>O: Final label and confidence
-    O->>U: JSON, Excel, metrics report
+
+    V->>O: Final voucher label + metadata
+    O->>U: JSON + Excel + evaluation report
 ```
 
-### Data contract
+### Data Contract
 
 | Stage | Format | Key fields |
 |---|---|---|
-| Input | Excel rows | seller, buyer, invoice number, date, item descriptions, quantities, taxable value, GST, discounts, freight, payment info, currency, import/export details, payroll info, debit/credit info, return info, order and delivery references |
-| Internal | Canonical records | normalized fields, signals, `party_role`, candidate categories |
-| Output | JSON / Excel | `invoice_number`, `voucher_type`, optional `confidence`, optional `explanation`, `flag_for_review` |
+| **Input** | Excel rows | Seller, buyer, invoice number/date, item descriptions, quantities, taxable value, GST, discounts, freight, payment information, currency, import/export details, payroll information, debit/credit information, return information, order references, delivery information and other metadata |
+| **Internal** | Canonical records | Normalized fields, signals, `party_role`, candidate categories, retrieved evidence |
+| **LLM output** | Structured JSON | `voucher_type`, optional `confidence_hint`, optional `reason` |
+| **Final output** | JSON / Excel | `invoice_number`, `voucher_type`, optional calibrated `confidence`, `explanation`, `flag_for_review` |
 
-**Example output (minimum structure):**
+### Minimum Output Example
 
 ```json
-{ "invoice_number": "INV-2026-1042", "voucher_type": "Purchase" }
+{
+  "invoice_number": "INV-2026-1042",
+  "voucher_type": "Purchase"
+}
 ```
 
-**Extended (optional) structure:**
+### Extended Output Example
 
 ```json
 {
   "invoice_number": "INV-2026-1042",
   "voucher_type": "Purchase",
   "confidence": 0.93,
-  "explanation": "Supplier invoice with GST and item lines; home entity is the buyer.",
+  "explanation": "The home entity is the buyer and the row contains a supplier invoice with taxable goods and GST.",
   "flag_for_review": false
 }
 ```
 
-### Worked examples (illustrative data)
+> The confidence value above is illustrative only. Final confidence will be generated and calibrated by the implemented system.
 
-These three rows show why signals and the validator matter. Party names are fictional.
+---
 
-| Row | Key fields | Signals computed | Path through the pipeline | Result |
-|---|---|---|---|---|
-| **A** | Seller `Sharma Traders`, buyer `Acme Components Pvt Ltd`, INV-2026-1042, three item lines, GST charged | `party_role = we are buyer`, has item lines, has GST, no return reference | No rule fires, so retrieve examples, one LLM call, validator agrees | **Purchase**, high confidence |
-| **B** | Same layout, but seller is `Acme Components Pvt Ltd` and buyer is `Bright Retail LLP` | `party_role = we are seller` | Same path as A | **Sales**, high confidence |
-| **C** | From `Current A/c`, to `Cash`, amount only, no external party, no invoice number | Both sides bank or cash, no counterparty, no tax fields | LLM first leans to Payment; the validator sees the bank-to-cash signal conflict, triggers one focused re-query | **Contra**, flagged only if still uncertain |
+### Worked Examples — Illustrative
 
-Rows A and B are identical except for who the home entity is. This is exactly the case where a keyword rule or an ungrounded LLM fails and the `party_role` signal succeeds.
+| Row | Key evidence | Candidate set | Result |
+|---|---|---|---|
+| **A** | Seller is external supplier; home entity is buyer; invoice + goods + GST | Purchase / Sales / Returns | **Purchase** |
+| **B** | Home entity is seller; customer is external buyer; invoice + goods + GST | Purchase / Sales / Returns | **Sales** |
+| **C** | Internal cash/bank transfer; no external party; no commercial invoice | Payment / Receipt / Contra | **Contra** |
+
+The examples demonstrate why transaction direction and account context matter more than isolated words.
 
 ---
 
 ## 13. Agentic Workflow
 
-VoucherIQ is **not** a free-roaming autonomous agent. It is a **bounded, deterministic multi-step workflow** in which the LLM acts inside a controlled loop. This keeps results reproducible and fast.
+VoucherIQ is not a free-roaming autonomous agent.
+
+It is a **bounded, deterministic multi-step AI workflow** in which the LLM performs the semantic classification task inside explicit controls. This gives the project some agentic characteristics without introducing unnecessary autonomy or unpredictability.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Normalize
     Normalize --> Signals
-    Signals --> RuleCheck
-    RuleCheck --> Validate: high-precision rule fired
-    RuleCheck --> Retrieve: needs reasoning
+    Signals --> Candidates
+    Candidates --> RuleCheck
+
+    RuleCheck --> Validate: high-precision case
+    RuleCheck --> Retrieve: reasoning required
+
     Retrieve --> Classify
     Classify --> Validate
-    Validate --> Accept: consistent and confident
-    Validate --> Requery: conflict or low confidence
-    Requery --> Validate: max 1 retry
-    Validate --> Flag: still uncertain after retry
+
+    Validate --> Accept: consistent + sufficient evidence
+    Validate --> Requery: conflict / low confidence
+
+    Requery --> Validate: maximum 1 retry
+    Validate --> Flag: still uncertain
+
     Accept --> [*]
     Flag --> [*]
 ```
 
-| Step | Behavior | Bound |
-|---|---|---|
-| Rule check | Skip the LLM only for patterns with very high precision | Rules are conservative and limited to categories with unmistakable fields |
-| Classify | One schema-constrained LLM call at temperature 0 | Deterministic |
-| Validate | Compare to signals and candidate set | Rule-based |
-| Re-query | One focused retry with the conflicting signals explained | Maximum 1 retry per row |
-| Flag | Mark `flag_for_review` instead of forcing a wrong answer | Always terminates |
+### Inference Tiers
 
-### Inference tiers
+| Tier | Purpose | LLM calls |
+|---|---|---:|
+| **0 — Deterministic shortcut** | Truly high-precision categories/signals | 0 |
+| **1 — Grounded classification** | Standard ambiguous or semantic cases | 1 |
+| **2 — Focused re-query** | Validator detects conflict or insufficient confidence | +1 maximum |
+| **3 — Review flag** | Evidence remains weak after retry | 0 additional |
 
-| Tier | Used for | LLM calls per row |
-|---|---|---|
-| **0. Rule shortcut** | Unmistakable patterns such as payroll-only or attendance-only fields | 0 |
-| **1. Grounded single pass** | Most rows: signals plus retrieved examples plus constrained JSON output | 1 |
-| **2. Focused re-query** | Validator found a conflict or low confidence | 1 extra (maximum) |
-| **3. Flag for review** | Still uncertain after the retry | 0 extra |
+### Confidence Design
 
-Identical canonical rows are served from a cache, so repeated patterns cost nothing.
+The model's self-reported confidence is **not trusted on its own**.
 
-### How confidence is computed
+The final confidence score is derived from multiple evidence sources:
 
-The model's own self-reported confidence is treated as a weak hint and is **never trusted alone**. The confidence score combines:
-
-| Component | Meaning |
+| Evidence | Meaning |
 |---|---|
-| Rule agreement | The signals and rule engine support the predicted label |
-| Retrieval agreement | Share of the top-k retrieved examples that carry the predicted label |
-| Validator result | Pass, conflict resolved by re-query, or unresolved |
-| LLM confidence hint | Low-weight input |
+| **Signal agreement** | Structured evidence supports the label |
+| **Candidate agreement** | Prediction is within the plausible candidate set |
+| **Retrieval agreement** | Similar examples support the predicted category |
+| **Validator result** | Prediction passes, requires retry, or remains conflicting |
+| **LLM confidence hint** | Low-weight supporting signal only |
 
-Weights and the review threshold are tuned on our held-out validation slice, and we check calibration (does 0.9 confidence really mean about 90 percent correct) before reporting the score.
+Weights and the review threshold will be tuned on a held-out validation slice. Where enough validation data exists, calibration will be measured before a confidence score is presented to users.
 
 ---
 
 ## 14. Technology Stack
 
-| Area | Technology |
+| Area | Proposed Technology |
 |---|---|
-| Language | Python 3.10+ |
-| Data handling | pandas, openpyxl |
-| Fuzzy column matching | RapidFuzz |
-| Schema validation | Pydantic |
-| LLM runtime | Ollama (llama.cpp as fallback) |
-| Models | Open-weight instruction-tuned LLM/SLM (Qwen / Gemma / Llama / Mistral class), quantized |
-| Embeddings | Open sentence-embedding model (BGE / E5 class) |
-| Vector search | FAISS or ChromaDB |
-| Evaluation | scikit-learn (accuracy, precision, recall, F1, confusion matrix) |
-| Interface | Command-line tool; optional lightweight Streamlit viewer for inspecting predictions |
-| Reproducibility | Pinned dependencies and model versions, fixed random seeds, temperature 0 |
-| Version control | Git and GitHub, public, with an open-source license |
+| **Language** | Python 3.10+ |
+| **Data processing** | pandas, openpyxl |
+| **Schema / validation** | Pydantic |
+| **Column matching** | RapidFuzz |
+| **Primary LLM** | Qwen3-8B, quantized |
+| **LLM runtime** | Ollama / llama.cpp-compatible local runtime |
+| **Embeddings** | Open BGE/E5-class sentence embedding model |
+| **Vector search** | FAISS or ChromaDB |
+| **Evaluation** | scikit-learn |
+| **Interface** | CLI first; optional lightweight Streamlit viewer |
+| **Reproducibility** | Pinned dependencies, pinned model version, fixed evaluation seed where applicable, deterministic generation settings |
+| **Version control** | Git + GitHub |
+| **License** | Open-source license for team-authored code; exact third-party licenses recorded in the final implementation |
 
 ---
 
 ## 15. Expected Features
 
-- Reads any reasonable Excel layout through **automatic column mapping**
-- **27-category** voucher prediction, one label per row
-- **Home-entity inference** to separate Purchase from Sales, and Purchase Return from Sales Return
-- **Explainable signals** shown beside each prediction
-- **Retrieval-grounded few-shot prompting** for consistent conventions
-- **Strict JSON output** with only valid labels
-- **Confidence score** and **short explanation** per row (optional fields)
-- **Review flags** for ambiguous or incomplete rows
-- **Batch processing with caching** for speed
-- **One-command evaluation** that reports accuracy, precision, recall, F1, per-category scores and a confusion matrix
-- Everything runs **locally**, so no data leaves the machine
+### Core
+
+- Excel (`.xlsx`) ingestion
+- Automatic canonical column mapping
+- Missing-value and malformed-input handling
+- 27-category voucher classification
+- Candidate generation before semantic classification
+- Context-aware classification across multiple fields
+- JSON and Excel output
+
+### AI / Reasoning
+
+- Local open-weight LLM classification
+- Retrieval-grounded few-shot examples
+- Accounting signal extraction
+- Cross-row context where useful
+- Structured JSON output
+- Concise explanation
+- Calibrated confidence score
+
+### Reliability
+
+- Allowed-label validation
+- Candidate-set validation
+- High-precision constraints
+- One controlled retry on conflict
+- Review flag for uncertain predictions
+- Caching and batching for speed
+- No hard-coded answer matching for hidden evaluation records
+
+### Evaluation
+
+- Accuracy
+- Macro precision / recall / F1
+- Weighted precision / recall / F1
+- Per-category scores
+- Confusion matrix
+- Confusable-group analysis
+- Valid-output rate
+- Latency / throughput
+- Peak memory
+- Ablation study
 
 ---
 
 ## 16. Implementation Approach
 
-### Before the final (design only, no code in this repository)
+### Before the Final — Design Only
 
-- Define the canonical schema and column synonym list
-- Write category definitions and disambiguation rules for each confusable pair
-- Prepare the example bank plan (target of several examples per category, with extra for confusable pairs)
+The qualifier repository contains only this README. No implementation, dataset, notebook, binary or generated file is included.
 
-### During the final hackathon (time-boxed phases)
+Design preparation will cover:
 
-| Phase | Work | Done when | Owner (planned) |
+- canonical schema definition
+- field synonym dictionary
+- voucher-category definitions
+- confusable-category guidance
+- signal definitions
+- candidate-generation logic
+- prompt structure
+- example-bank structure
+- evaluation protocol
+
+### During the Final Hackathon
+
+| Phase | Work | Exit Condition | Owner |
 |---|---|---|---|
-| **1. Foundations** | Ingest the organizers' Excel, build schema mapper and normalizer, set up the repository, pinned environment and Ollama | The Excel loads, columns map to the canonical schema, and a test prompt returns valid JSON from the local model | Member 1 |
-| **2. Signals and rules** | Build signal extractor, home-entity inference and the conservative rule engine | Every row gets a signal vector and `party_role`; rules fire only on unmistakable patterns | Member 2 |
-| **3. LLM core** | Prompt builder, schema-constrained decoding, retrieval over the example bank, model bake-off | One model is chosen by the bake-off and classifies rows end to end | Member 3 |
-| **4. Validation and metrics** | Validator, confidence engine, evaluation harness, confusion-matrix report | The evaluation script runs on any labeled file and prints the full report | Member 4 |
-| **5. Integration and hardening** | End-to-end run, speed tuning (batching, caching, rule shortcut), failure handling | Full sheet processed with no crashes, with throughput measured | All |
-| **6. Demo and docs** | Final README, run instructions, results table, optional viewer | A fresh clone reproduces the reported results | All |
+| **1. Foundations** | Load organizer Excel, schema mapping, normalization, local model runtime | Spreadsheet loads and a test transaction receives valid structured output | Member 1 |
+| **2. Signals & Candidates** | Signal extraction, home-entity resolution, candidate generation, conservative constraints | Every row receives signals and a plausible candidate set | Member 2 |
+| **3. LLM Core** | Prompt builder, retrieval, constrained output, model bake-off | One selected model performs end-to-end classification | Member 3 |
+| **4. Validation & Metrics** | Validator, confidence engine, evaluation harness, confusion matrix | Reproducible evaluation runs on a labeled dataset | Member 4 |
+| **5. Integration & Hardening** | End-to-end processing, caching, batching, retry logic and failure handling | Full dataset processes successfully with measured throughput | All |
+| **6. Demo & Documentation** | UI/viewer if useful, final documentation, result tables and demo flow | Fresh clone reproduces the reported pipeline | All |
 
-**Milestone rule:** a baseline (signals plus LLM, no extras) must work end to end by the midpoint of the event. Retrieval tuning, the re-query loop and the viewer are improvements on top of a working system.
+### Milestone Rule
 
-### Handling the absence of training labels
+A working baseline must exist by the midpoint:
 
-The organizers provide an **unlabeled** Excel file. Therefore:
+```text
+Signals + Candidate Generation + Local LLM + Basic Validation
+```
 
-1. The system works **zero-shot and few-shot** and does not require fine-tuning.
-2. We build a **small labeled validation set** ourselves (hand-labeled rows from the provided file plus synthetic transactions that follow accounting conventions) to tune prompts, rules and thresholds.
-3. If any labeled sample is provided, it is added to the example bank and the validation set.
-4. If time permits, a **LoRA / QLoRA fine-tune** of a small model on the curated set is an optional stretch goal, not a dependency.
+Retrieval improvements, confidence calibration, optimization and the viewer are added only after the baseline works end to end.
 
-### Reproducible evaluation
+### Handling the Absence of Training Labels
 
-- Fixed seeds, pinned package and model versions, temperature 0
-- A scripted evaluation that takes any labeled file and prints accuracy, macro and weighted precision, recall, F1, per-category table and confusion matrix
-- Separate reporting for **confusable pairs** and **incomplete-field rows**
-- Latency and throughput (rows per second) and peak memory reported alongside accuracy
+The challenge states that the voucher-type column is intentionally missing.
 
-### Ablation study (shows every layer earns its place)
+Therefore:
 
-| Variant | What it tests |
+1. The baseline will operate without supervised fine-tuning.
+2. A small labeled validation set will be created during the final where permitted, using carefully reviewed examples and accounting-consistent synthetic examples.
+3. Any organizer-supplied labeled examples, if provided, will be incorporated into validation/retrieval.
+4. LoRA/QLoRA fine-tuning is an optional stretch goal and is **not required for the core system**.
+
+### Reproducible Evaluation
+
+The evaluation harness will:
+
+- accept any labeled evaluation file
+- calculate overall and per-category metrics
+- report macro and weighted scores
+- generate a confusion matrix
+- separately report confusable-category performance
+- report incomplete-field performance
+- record latency, throughput and peak memory
+- pin model and package versions
+
+### Ablation Study
+
+The system will be evaluated as a sequence of increasingly complete variants:
+
+| Variant | Purpose |
 |---|---|
-| Rules and signals only | How far deterministic logic goes without an LLM |
-| LLM zero-shot | The raw model, with no signals or examples |
-| LLM plus signals | Value of home-entity and accounting signals |
-| LLM plus signals plus retrieval | Value of grounded few-shot examples |
-| **Full hybrid** (plus validator and re-query) | Our final system |
-| Optional: LoRA/QLoRA fine-tuned small model | Stretch goal, compared against the full hybrid |
+| **Rules / signals only** | Measure how much deterministic logic can solve |
+| **LLM zero-shot** | Measure raw open-model performance |
+| **LLM + signals** | Measure the value of structured accounting context |
+| **LLM + signals + retrieval** | Measure the value of grounded examples |
+| **Full hybrid** | Measure the complete system with validation and retry |
+| **Optional LoRA/QLoRA** | Stretch comparison against the non-fine-tuned approach |
 
-Each variant is reported on overall macro-F1, F1 on the confusable groups from Section 11, valid-JSON rate, flagged-row rate and rows per second.
-
-**Targets we hold ourselves to:** 100 percent schema-valid outputs with no label outside the 27 categories, deterministic results across repeated runs, and a flagged-row rate that we report openly rather than hide.
+Each variant will be compared using macro-F1, confusable-group F1, valid-label rate, review-flag rate and throughput where practical.
 
 ---
 
 ## 17. Expected Final Output
 
-1. A **working classifier** (CLI) that takes an Excel file and produces a voucher type for every row
-2. **JSON and Excel outputs** in the required structure, with optional confidence, explanation and review flag
-3. A **reproducible evaluation report**: overall and per-category metrics, confusion matrix, speed and memory figures
-4. A **public GitHub repository** with an open-source license, run instructions and the documented architecture
-5. A short **demonstration** on previously unseen records
+The final implementation is expected to provide:
 
-### Planned interface and repository layout (built during the final)
+1. A working classifier that accepts the organizer-provided Excel dataset.
+2. One voucher category for every transaction row.
+3. JSON and Excel output.
+4. Optional confidence, explanation and review metadata.
+5. A reproducible evaluation script and metrics report.
+6. A public GitHub repository released under an appropriate open-source license.
+7. A short demonstration using representative unseen records.
+
+### Example CLI Plan
 
 ```bash
 # Classify an Excel file
-python -m voucheriq classify --input transactions.xlsx --out predictions.xlsx --json predictions.json
+python -m voucheriq classify \
+  --input transactions.xlsx \
+  --out predictions.xlsx \
+  --json predictions.json
 
-# Evaluate against any labeled file
-python -m voucheriq evaluate --pred predictions.json --labels labeled.xlsx
+# Evaluate labeled predictions
+python -m voucheriq evaluate \
+  --pred predictions.json \
+  --labels labeled.xlsx
 ```
+
+### Planned Repository Structure
 
 ```text
 voucheriq/
-  schema/        column mapping, normalization, home-entity inference
-  signals/       signal extractor and rule engine
-  retrieval/     example bank, embeddings, vector index
-  llm/           prompt builder, constrained decoding, re-query
-  validate/      validator and confidence engine
-  evaluate/      metrics, ablations, confusion matrix
-  app/           optional Streamlit viewer
+├── schema/
+│   ├── mapping
+│   └── normalization
+├── context/
+│   └── cross_row.py
+├── signals/
+│   ├── extractor.py
+│   └── rules.py
+├── candidates/
+│   └── generator.py
+├── retrieval/
+│   ├── examples/
+│   ├── embeddings.py
+│   └── index.py
+├── llm/
+│   ├── prompts.py
+│   ├── inference.py
+│   └── retry.py
+├── validate/
+│   ├── validator.py
+│   └── confidence.py
+├── evaluate/
+│   ├── metrics.py
+│   └── ablation.py
+├── app/
+│   └── viewer.py
+└── README.md
 ```
 
-This layout is a plan only. This qualifier repository contains just the README.
+This structure is a **final-round implementation plan only**. The qualifier repository itself contains only `README.md`.
 
 ---
 
 ## 18. Future Scope / Scalability
 
-| Direction | Description |
+| Direction | Extension |
 |---|---|
-| **Fine-tuning** | LoRA / QLoRA on accumulated labeled data to improve accuracy and shrink the model for faster inference |
-| **Active learning** | Reviewers correct flagged rows; corrections feed back into the example bank |
-| **Pipeline bridge** | Plug directly after an invoice-extraction stage (OCR or document AI) and before automated voucher creation |
-| **Scale** | Batch and parallel inference, response caching, and moving to a serving engine such as vLLM for large volumes |
-| **Multi-entity support** | Explicit per-company configuration for home entity, chart of accounts and local conventions |
-| **Multi-regime support** | Extend rule and prompt packs to other tax regimes and voucher taxonomies |
-| **Hybrid ML** | Train a light classifier on signals plus embeddings to handle the easy majority cheaply, reserving the LLM for hard rows |
+| **Fine-tuning** | LoRA / QLoRA on accumulated labeled data |
+| **Active learning** | Reviewer corrections feed back into the example bank |
+| **Accounting integration** | Connect directly to accounting / ERP systems |
+| **Pipeline bridge** | Place the classifier after document extraction and before automated voucher creation |
+| **Scale** | Batch/parallel inference, caching and production model serving |
+| **Multi-entity support** | Company-specific configuration, home entity and accounting conventions |
+| **Multi-regime support** | Extend category definitions and prompts to other tax/accounting regimes |
+| **Hybrid ML** | Use a lightweight model for easy cases and reserve the LLM for difficult semantic cases |
+| **Human-in-the-loop** | Route low-confidence records to reviewer workflows |
+| **Continuous evaluation** | Track category-level drift and model performance over time |
 
 ---
 
 ## 19. Open-Source Dependencies / Components
 
-| Component | Purpose | License (to be verified before use) |
-|---|---|---|
-| Ollama / llama.cpp | Local LLM inference | MIT |
-| Open-weight LLM/SLM (Qwen / Gemma / Llama / Mistral class) | Primary classifier | Varies per model; checked per release |
-| Open embedding model (BGE / E5 class) | Similarity search | Permissive, to be confirmed |
-| FAISS / ChromaDB | Vector search | MIT / Apache-2.0 |
-| pandas, openpyxl | Spreadsheet handling | BSD / MIT |
-| RapidFuzz | Fuzzy column matching | MIT |
-| Pydantic | Output schema validation | MIT |
-| scikit-learn | Metrics, optional classical model | BSD |
-| Streamlit (optional) | Result viewer | Apache-2.0 |
+The final implementation will record the exact model versions, repositories and licenses actually used.
 
-Our own code will be released publicly under an open-source license (for example Apache-2.0 or MIT).
+| Component | Purpose | License / Status |
+|---|---|---|
+| **Qwen3-8B** | Primary open-weight classification model | Apache-2.0 for the official model repository |
+| **Ollama / llama.cpp-compatible runtime** | Local model inference | License recorded for exact runtime version used |
+| **BGE / E5-class embedding model** | Similarity retrieval | Exact model license verified before use |
+| **FAISS / ChromaDB** | Vector retrieval | Exact library license recorded before release |
+| **pandas** | Tabular processing | Open-source |
+| **openpyxl** | Excel processing | Open-source |
+| **RapidFuzz** | Fuzzy schema mapping | Open-source |
+| **Pydantic** | Schema/output validation | Open-source |
+| **scikit-learn** | Evaluation metrics and optional baselines | Open-source |
+| **Streamlit (optional)** | Local prediction viewer | Open-source |
+
+Our own implementation will be published under an appropriate open-source license, subject to the licenses of all third-party components.
 
 ---
 
 ## 20. Expected Challenges and Mitigation
 
-### Technical challenges
-
-| Challenge | Why it is hard | Mitigation |
+| Challenge | Why it is difficult | Mitigation |
 |---|---|---|
-| **Unknown dataset schema** | Column names and fields are only seen at the final | Fuzzy schema mapper with synonym lists; every signal tolerates missing fields |
-| **No labels provided** | Cannot train a supervised model directly | Few-shot retrieval over a curated bank; our own validation set; fine-tuning only as a stretch |
-| **Purchase vs Sales** | Fields are symmetrical; direction depends on who "we" are | Home-entity inference from party frequency (or optional config) and a `party_role` signal fed to the model |
-| **Purchase Return vs Sales Return** | Looks like a normal invoice with reference to an earlier one | Return and reference signals, plus direction from `party_role`, plus targeted examples |
-| **Contra vs Payment / Receipt** | Both are money movements | Signal for bank-to-bank or cash-to-bank accounts on both sides; explicit Contra definition and examples |
-| **Journal vs Purchase / Sales** | Adjustments can mention goods or parties | Signals for missing commercial fields (no invoice, no delivery) plus debit/credit-only structure |
-| **Inventory vs Purchase / Sales** | Goods movement has quantities but no commercial value | Signals for quantity-only rows, material or stock terms, delivery or receipt references, absence of tax invoice fields |
-| **Import / Export vs ordinary trade** | Needs currency and cross-border cues | Currency, foreign-party and customs-field signals as candidate constraints |
-| **Salary / Payroll vs other payments** | Payments to individuals look alike | Payroll-specific fields (employee, gross, deductions) as a high-precision rule |
-| **Missing or ambiguous fields** | Real data is messy | Validator flags uncertain rows (`flag_for_review`) and falls back to **Other / Miscellaneous** only when evidence is genuinely insufficient |
-| **LLM inconsistency** | Free-text answers vary run to run | Temperature 0, schema-constrained decoding, label-set validation, one controlled retry |
-| **Prompt length and speed** | Many categories and examples cost tokens and time | Candidate-set pruning, top-k balanced retrieval, rule shortcut for unambiguous rows, batching and caching |
-| **Limited hardware** | Local GPU may be small | Quantized 7B to 12B models, CPU fallback, model chosen by the bake-off on speed and accuracy |
-| **Overfitting to our own examples** | Our validation set is not the hidden set | Keep a held-out slice, report per-category results, avoid category-specific hardcoding beyond signals |
-| **Expense vs Purchase, Advance vs Payment** | Same party and amount fields, different accounting meaning | Item and quantity signals, invoice-reference signals, and targeted examples for each pair |
-| **Order vs Invoice, and the goods-movement family** | Orders, notes, rejections and material movements share fields with invoices | Direction (inward or outward), order-link and no-commercial-value signals, plus the disambiguation guide in Section 11 |
-| **Wrong home-entity guess** | A frequency heuristic can fail if the sheet mixes several businesses | Optional config value overrides inference; low-confidence inference marks affected rows for review |
-| **Taxonomy conventions differ from ours** | Our category definitions are working conventions | Validate definitions on the organizers' data first thing in the final and update the prompt and rules |
+| **Unknown dataset schema** | Column names and optional fields are known only when the final dataset arrives | Canonical schema + synonym mapping + fuzzy matching |
+| **No voucher labels in input** | Direct supervised training is not possible from the challenge file alone | Zero-shot/few-shot design + validation set + retrieval |
+| **Purchase vs Sales** | Seller/buyer fields are symmetrical | Explicit home-entity configuration or dataset-level inference + party-role signal |
+| **Purchase Return vs Sales Return** | Returns resemble original invoices | Return indicators + references + direction-aware signals |
+| **Contra vs Payment / Receipt** | All are money movements | Cash/bank account signals + transaction direction + validator |
+| **Expense vs Purchase** | Both can involve supplier + GST | Service/overhead signals + item/quantity evidence |
+| **Advance vs Payment** | Similar monetary fields | Invoice-reference and timing signals |
+| **Journal vs Purchase / Sales** | Adjustments can still mention parties or goods | Debit/credit structure + absence of conventional commercial evidence |
+| **Salary / Payroll vs Payment** | Employee payments can resemble ordinary payments | Payroll-specific fields such as employee, pay period and deductions |
+| **Orders vs Invoices** | Both can contain items and amounts | Invoice/tax evidence vs order-specific fields |
+| **Goods movement categories** | Many categories share quantity and direction fields | Movement-specific signals + order/delivery context + candidate pruning |
+| **Import / Export vs ordinary trade** | Cross-border transactions may resemble domestic purchase/sales | Currency, foreign-party, customs and shipping cues |
+| **Missing / incomplete information** | Some records will not contain enough evidence | Missing-value handling + uncertainty scoring + review flag |
+| **LLM inconsistency** | Generative models can vary in free-form responses | Structured output + deterministic generation settings + validation |
+| **Hallucinated explanations** | An explanation may state unsupported evidence | Explanations are derived from available context and treated as secondary output |
+| **Prompt size / speed** | 27 categories + examples can increase inference cost | Candidate generation + balanced top-k retrieval + caching |
+| **Limited hardware** | Local inference must fit the available machine | Quantization + practical model bake-off + smaller fallback model |
+| **Wrong home-entity inference** | Dataset-level heuristics can fail | Explicit configuration override + confidence/review handling |
+| **Taxonomy differences** | Organizer data may use conventions not anticipated by us | Validate working definitions against organizer data before final evaluation |
+| **Overfitting to validation examples** | Self-created examples may not represent hidden data | Held-out validation split + ablation + no answer-specific hard-coding |
 
-### Project risks
+### Project Risks
 
 | Risk | Mitigation |
 |---|---|
-| Too little time in the final | Pipeline is modular; a baseline (signals plus LLM) works end to end by the midpoint, and extras are added afterwards |
-| Team members join at different times | Clear module ownership and a simple, documented interface between components |
-| Model download or setup issues | Set up and test the runtime and a fallback model early in the final |
+| **Not enough final-round time** | Establish a working baseline by the midpoint before adding retrieval/optimization extras |
+| **Model setup issues** | Test local inference early and keep a smaller compatible fallback |
+| **Uneven team availability** | Modular ownership and simple interfaces between components |
+| **Unexpected data format** | Schema mapper and normalization are implemented before model tuning |
+| **Inference too slow** | Candidate pruning, caching, batching and quantization |
+| **Low accuracy on a small category** | Report per-category results and target the weak/confusable groups specifically |
 
 ---
 
-## Appendix A. Alignment with Judging Criteria and Submission Checklist
+# Appendix A. Alignment with Judging Criteria and Submission Checklist
 
-### Where each qualifier criterion is addressed
+## Where the Qualifier Criteria Are Addressed
 
-| Evaluation criterion | Where to look |
+| Qualifier criterion | README location |
 |---|---|
-| Clarity of the problem | Sections 2 and 6 |
-| Originality and relevance of the solution | At a Glance, Sections 4 and 11 (home-entity inference, cross-row context) |
-| Technical depth and quality of architecture | Sections 10 to 13 |
-| Appropriate open-source AI selection and understanding of it | Sections 7 to 9 |
-| Meaningful integration of AI | Sections 9 and 13 |
-| Feasibility within the final hackathon | Section 16 (phases, exit criteria, milestone rule) |
-| Completeness of the proposal | All 20 sections plus this appendix |
-| Impact, scalability and extensibility | Sections 6 and 18 |
-| Overall coherence | Worked examples in Section 12 and the ablation plan in Section 16 |
+| **Clarity of the problem** | Sections 2, 3 and 6 |
+| **Originality / relevance** | At a Glance, Sections 4 and 11 |
+| **Technical depth / architecture** | Sections 10–13 |
+| **Appropriate open-source AI selection** | Sections 7–9 |
+| **Meaningful AI integration** | Sections 4, 9 and 13 |
+| **Implementation feasibility** | Section 16 |
+| **Proposal completeness** | All 20 mandatory sections |
+| **Impact / scalability** | Sections 6 and 18 |
+| **Overall coherence** | Architecture, worked examples, ablation plan and implementation milestones |
 
-### Submission checklist
+## Submission Checklist
 
 - [x] Repository contains only `README.md`
-- [x] All 20 mandatory sections are present
+- [x] All 20 mandatory README sections are present
 - [x] Problem statement and target users are defined
-- [x] Open-source AI technology is named, justified, and its role explained
-- [x] Architecture, data flow and dependencies are documented with diagrams
-- [x] Implementation approach is realistic for the final
-- [x] Challenges and mitigation are included
-- [ ] Team name and member names filled in at the top
-- [ ] README previewed on GitHub (Mermaid diagrams and tables render)
-- [ ] Repository submitted before the 8 October deadline
+- [x] Open-source/open-weight AI technology is named and justified
+- [x] AI's role is central and explicitly explained
+- [x] Architecture and data flow are documented
+- [x] Open-source dependencies/components are documented
+- [x] Implementation approach is realistic for the final hackathon
+- [x] Challenges and mitigation strategies are included
+- [x] Output format is defined
+- [x] Evaluation strategy is defined
+- [ ] Confirm exact final team details
+- [ ] Preview README on GitHub and verify Mermaid/table rendering
+- [ ] Verify exact model/runtime licenses used in the final implementation
+- [ ] Submit before the official qualifier deadline
 
 ---
 
-*This README is a technical proposal for the qualifier round. Implementation will be built and demonstrated in the final hackathon.*
-README (2) (1).md
-Displaying README (2) (1).md.
+## Conclusion
+
+**VoucherIQ** turns structured transaction-to-voucher classification into a context-aware AI problem rather than a keyword-matching task.
+
+The proposed architecture combines:
+
+```text
+Structured Data
+      +
+Accounting Signals
+      +
+Candidate Generation
+      +
+Retrieval-Grounded Examples
+      +
+Open-Weight LLM Reasoning
+      +
+Deterministic Validation
+      +
+Quantitative Evaluation
+```
+
+The result is a practical, privacy-conscious and extensible system designed specifically around the challenge's requirement to distinguish semantically similar voucher categories using meaningful open-source AI.
+
+---
+
+> **Qualifier Stage:** Technical Proposal  
+> **Repository rule:** `README.md` only  
+> **Final Stage:** Working implementation of the proposed system
+VoucherIQ_Final_README.md
+Displaying VoucherIQ_Final_README.md.
